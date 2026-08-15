@@ -7,3 +7,4 @@
 # Allow only Python files
 !*.py
 !.gitignore
+!LICENSE
