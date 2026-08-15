@@ -1,0 +1,9 @@
+# Ignore everything
+*
+
+# Allow directories
+!*/
+
+# Allow only Python files
+!*.py
+!.gitignore
