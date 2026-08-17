@@ -28,9 +28,8 @@ MODES = ('soliton_free', 'soliton_data','None')
 MIRRORED = (False ,True)
 BATCHES = (64, 128, 256,300,350,400,512, 1024)
 S = 0.95                  # only used by 'Node' mode
-SOLITON = (0.05, 0.1)     # Robust Soliton (c, delta)
+SOLITON = (0.07, 0.4)     # Robust Soliton (c, delta)
 FEATURES = 32 * 32 * 3
-
 
 def run_mode(mode,mirrored, xt, yt):
   if mode == 'soliton_data':
@@ -39,11 +38,10 @@ def run_mode(mode,mirrored, xt, yt):
   rows = {}
   for B in BATCHES:
     x_b = x_b[:B] if mode == 'soliton_data' else None
-    kw = dict(num_classes=10, n_neurons=NUM_NEURONS, seed=SEED)
     if mode == 'None':
-      model = build_model(FEATURES, mirrored=mirrored, mode=mode, s=S, **kw)
+      model = build_model(FEATURES, mirrored=mirrored, mode=mode, s=S)
     elif mode == 'soliton_free':
-      model = build_model(FEATURES, mirrored=mirrored, mode=mode, soliton=SOLITON, B=B, **kw)
+      model = build_model(FEATURES, mirrored=mirrored, mode=mode, soliton=SOLITON, B=B)
     else:
       model = build_model(FEATURES, mirrored=mirrored, mode=mode, soliton=SOLITON,
                           calib_x=x_b, **kw)
@@ -95,7 +93,7 @@ def main():
   print(f"{'B':>5} |" + "|".join(f"{(mode+'_'+('mirrored' if mirrored else 'independent')):<25}" for mode, mirrored in itertools.product(MODES, MIRRORED)))
   print("-" * 84)
   for B in BATCHES:
-    cells = [f"{results[m,mirrored][B]['base']['recall']:>25.3f}" for m,mirrored in itertools.product(MODES, MIRRORED)]
+    cells = [f"{results[m,mirrored][B]['sc']['recall']:>25.3f}" for m,mirrored in itertools.product(MODES, MIRRORED)]
     print(f"{B:>5} |" + "|".join(cells))
   print("-" * 84)
 
