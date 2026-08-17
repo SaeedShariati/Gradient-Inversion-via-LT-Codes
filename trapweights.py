@@ -90,7 +90,7 @@ def robust_soliton_degrees(rng, n_neurons, B, c=0.05, delta=0.1):
   return rng.choice(np.arange(1, B + 1), size=n_neurons, p=beta)
 
 
-def calibrate_biases(W1, calib_x, degrees, permutate = True):
+def calibrate_biases(W1, calib_x, degrees):
   """for when the server has access to some data. calculate b_j such that neuron j fires 
   on exactly degrees[j] samples of calib_x.
   Neuron j fires iff z_j + b_j > 0.  Sorting row j's pre-activations and
@@ -101,15 +101,7 @@ def calibrate_biases(W1, calib_x, degrees, permutate = True):
   calib_x = np.asarray(calib_x, dtype=np.float64)
   input_dim = calib_x.shape[1]
   B, N = calib_x.shape[0], W1.shape[1]
-  if permutate:
-    z = np.zeros((B, N), dtype=np.float64)
-    for j in range(N):
-      # Same permutation applied to ALL samples for neuron j
-      perm = np.random.permutation(input_dim)
-      # All samples get their features reordered the SAME way
-      z[:, j] = calib_x[:, perm] @ W1[:, j]
-  else:
-    z = np.asarray(calib_x, dtype=np.float64) @ np.asarray(W1, dtype=np.float64)
+  z = np.asarray(calib_x, dtype=np.float64) @ np.asarray(W1, dtype=np.float64)
 
   degrees = np.asarray(degrees)
   b = np.empty(N, dtype=np.float64)
@@ -138,13 +130,14 @@ def analytic_biases(W1, degrees, B):
 
 
 def build_model(input_dim, num_classes=NUM_CLASSES, n_neurons=NUM_NEURONS,
-                mode='independent', s=1.0, sigma=SIGMA, seed=SEED,
+                mode='None',mirrored = False, s=1.0, sigma=SIGMA, seed=SEED,
                 downstream=None, soliton=(0.05, 0.1), B=None, calib_x=None):
   """The server's model: Dense(n_neurons) -> ReLU -> `downstream` -> logits.
 
-  mode selects the first-layer construction: independent, mirrored, soliton_free, or soliton_data.
-  `s` is meaningful only for 'independent' / 'mirrored'; the soliton modes
-  set activation fractions per row through the bias, so s is ignored there.
+  mode selects the first-layer construction: soliton_free, soliton_data, or None
+  mirrored selects the first layer weight construction: mirrored or independent.
+  `s` is meaningful only for 'independent' / 'mirrored';
+  the soliton modes set activation fractions per row through the bias, so s is ignored there.
 
   `downstream` is a callable mapping the ReLU activation tensor to the logit
   tensor; it may contain anything differentiable.  Default: one Dense layer
@@ -154,8 +147,8 @@ def build_model(input_dim, num_classes=NUM_CLASSES, n_neurons=NUM_NEURONS,
   `downstream` to change the rest of the architecture.
   """
   rng = np.random.default_rng(seed)
-  if mode in ('independent', 'mirrored'):
-    W1 = make_W1(rng, s, n_neurons, input_dim, sigma, mode == 'mirrored')
+  if mode == 'None':
+    W1 = make_W1(rng, s, n_neurons, input_dim, sigma, mirrored)
     b1 = np.zeros(n_neurons)
   elif mode in ('soliton_free', 'soliton_data'):
     if calib_x is not None:
@@ -163,7 +156,7 @@ def build_model(input_dim, num_classes=NUM_CLASSES, n_neurons=NUM_NEURONS,
     if B is None:
       raise ValueError("soliton modes need B (anticipated batch size), "
                        "either directly or via calib_x")
-    W1 = make_W1(rng, 1.0, n_neurons, input_dim, sigma, mirrored=False)
+    W1 = make_W1(rng, 1.0, n_neurons, input_dim, sigma, mirrored)
     deg = robust_soliton_degrees(rng, n_neurons, B, *soliton)
     if mode == 'soliton_data':
       if calib_x is None:
