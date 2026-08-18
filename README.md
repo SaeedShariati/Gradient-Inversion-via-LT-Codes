@@ -1,1 +1,1 @@
-trapweights.py has the common functionality needed for expermients. exp_main.py generates tables comparing different configurations of the attack.
+trapweights.py has the common functionality needed for expermients. exp_main.py generates tables for the trap weights mechanism. compare_modes.py, compares all combinations of specified configurations.
