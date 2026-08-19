@@ -125,7 +125,11 @@ def analytic_biases(W1, degrees, B):
   sd = np.sqrt((W ** 2).sum(axis=0) / 12.0)
   nd = NormalDist()
   degrees = np.asarray(degrees, dtype=np.float64)
-  q = np.array([nd.inv_cdf(1.0 - d / B) for d in degrees])
+  q = np.array([
+      nd.inv_cdf(1.0 - d/B) if (d != B) 
+      else 3 # 3 standard deviations above the mean for d==B, to avoid error ( cdf(3) arppoximately 0.9986 )
+      for d in degrees
+  ])
   return -(mu + sd * q)
 
 
