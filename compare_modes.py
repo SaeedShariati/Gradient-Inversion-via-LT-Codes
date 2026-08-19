@@ -12,8 +12,8 @@ attack:
 
 """
 from trapweights import (
-    NUM_NEURONS, L2_DIST, SEED,
-    load_cifar10, build_model, build_problem,
+    NUM_NEURONS, L2_DIST, SEED, DATABASES,
+    load_data, build_model, build_problem,
     IterativeSubtractionAttack, attack_baseline, score_attack,
     activation_stats, metric_row,
 )
@@ -29,22 +29,21 @@ MIRRORED = (False ,True)
 BATCHES = (64, 128, 256,300,350,400,512, 1024)
 S = 0.95                  # only used by 'Node' mode
 SOLITON = (0.07, 0.4)     # Robust Soliton (c, delta)
-FEATURES = 32 * 32 * 3
+DEFAULT_DATABASE = "emnist"
 
 def run_mode(mode,mirrored, xt, yt):
   if mode == 'soliton_data':
-    _, (x_b,y_b) = tf.keras.datasets.cifar10.load_data() #used in soliton_data mode only
-    x_b, y_b = x_b.astype(np.float64) / 255.0, y_b.flatten().astype(int)
+    x_b, y_b = load_data(DEFAULT_DATABASE, B=max(BATCHES),train=False)
   rows = {}
   for B in BATCHES:
     x_b = x_b[:B] if mode == 'soliton_data' else None
     if mode == 'None':
-      model = build_model(FEATURES, mirrored=mirrored, mode=mode, s=S)
+      model = build_model(*DATABASES[DEFAULT_DATABASE], mirrored=mirrored, mode=mode, s=S)
     elif mode == 'soliton_free':
-      model = build_model(FEATURES, mirrored=mirrored, mode=mode, soliton=SOLITON, B=B)
+      model = build_model(*DATABASES[DEFAULT_DATABASE], mirrored=mirrored, mode=mode, soliton=SOLITON, B=B)
     else:
-      model = build_model(FEATURES, mirrored=mirrored, mode=mode, soliton=SOLITON,
-                          calib_x=x_b, **kw)
+      model = build_model(*DATABASES[DEFAULT_DATABASE], mirrored=mirrored, mode=mode, soliton=SOLITON,
+                          calib_x=x_b)
     prob = build_problem(model, xt, yt, B)
     base = attack_baseline(prob)
     peel = IterativeSubtractionAttack(model, B).run(prob['gw'], prob['gb'])
@@ -59,8 +58,8 @@ def run_mode(mode,mirrored, xt, yt):
 
 
 def main():
-  print("Loading CIFAR-10 ...")
-  xt, yt = load_cifar10()
+  print("Loading " + DEFAULT_DATABASE + " ...")
+  xt, yt = load_data(DEFAULT_DATABASE, B=max(BATCHES),train=True)
   print(f"N={NUM_NEURONS}  s={S}  soliton(c,delta)={SOLITON}  "
         f"L2<{L2_DIST}  seed={SEED}\n")
 

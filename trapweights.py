@@ -12,10 +12,11 @@ import contextlib
 
 import numpy as np
 import tensorflow as tf
+import tensorflow_datasets as tfds
 
 # ------------------------------------------------------------------ constants
-
-NUM_CLASSES = 10
+DATABASES = {"cifar10": (32*32*3, 10), "emnist": (28*28, 62), "fashion_mnist": (28*28, 10), "mnist": (28*28, 10), "cifar100": (32*32*3, 100), 
+  "svhn": (32*32*3, 10)}
 NUM_NEURONS = 1000              # width of the attacked layer
 L2_DIST = 0.01                  # exact-recovery scoring threshold (post-attack)
 SIGMA = 0.5                     # weight magnitude scale
@@ -36,11 +37,58 @@ TF_DETERMINISTIC_OPS=1
 def _device():
   return tf.device(ATTACK_DEVICE) if ATTACK_DEVICE else contextlib.nullcontext()
 
-def load_cifar10():
-  """CIFAR-10 train split, scaled to [0, 1], float64."""
-  (x, y), _ = tf.keras.datasets.cifar10.load_data()
-  return x.astype(np.float64) / 255.0, y.flatten().astype(int)
+def load_data(dataset, B, train = True):
+  """Load data for the specified dataset."""
+  if dataset in ("cifar10", "cifar100", "fashion_mnist", "mnist"):
+    return _load_keras_subset(dataset, train, B)
+  elif dataset == "emnist":
+        split = 'train' if train else 'test'
+        x, y = _load_tfds_subset('emnist/byclass', 'train' if train else 'test', B)
+        # tfds returns (28,28,1); squeeze to match Keras MNIST shape (28,28)
+        if x.ndim == 4 and x.shape[-1] == 1:
+            x = x.squeeze(-1)
+        return x, y
+  elif dataset == "svhn":
+      split = 'train' if train else 'test'
+      x, y = _load_tfds_subset('svhn_cropped', 'train' if train else 'test', B)
+      return x, y
+  
+  else:
+      raise ValueError(f"Unsupported dataset: {dataset}")
 
+
+
+def _load_keras_subset(dataset_name, train , B):
+    """Load from tf.keras.datasets"""
+    if dataset_name == "cifar10":
+        (x, y), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+    elif dataset_name == "cifar100":
+        (x, y), (x_test, y_test) = tf.keras.datasets.cifar100.load_data()
+    elif dataset_name == "fashion_mnist":
+        (x, y), (x_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
+    elif dataset_name == "mnist":
+        (x, y), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
+    else:
+        raise ValueError(f"Unknown keras dataset: {dataset_name}")
+    x, y = x[:B], y[:B]
+    x_test, y_test = x_test[:B], y_test[:B]
+    if train:
+      return x.astype(np.float64) / 255.0, y.flatten().astype(int)
+    else:
+      return x_test.astype(np.float64) / 255.0, y_test.flatten().astype(int)
+
+def _load_tfds_subset(dataset_name, split, B):
+    """split: train or test."""
+    split = f"{split}[:{B}]"
+    ds = tfds.load(dataset_name, split=split, as_supervised=True)
+    x, y = [], []
+    for img, label in tfds.as_numpy(ds):
+        x.append(img)
+        y.append(label)
+    
+    x = np.array(x, dtype=np.float64) / 255.0
+    y = np.array(y).flatten().astype(int)
+    return x, y
 
 # --------------------- weight construction --------------------------------------
 
@@ -133,7 +181,7 @@ def analytic_biases(W1, degrees, B):
   return -(mu + sd * q)
 
 
-def build_model(input_dim, num_classes=NUM_CLASSES, n_neurons=NUM_NEURONS,
+def build_model(input_dim, num_classes, n_neurons=NUM_NEURONS,
                 mode='None',mirrored = False, s=1.0, sigma=SIGMA, seed=SEED,
                 downstream=None, soliton=(0.05, 0.1), B=None, calib_x=None):
   """The server's model: Dense(n_neurons) -> ReLU -> `downstream` -> logits.

@@ -3,23 +3,23 @@
 Main results: extraction-recall, label accuracy, certification margins.
 """
 from trapweights import (
-    NUM_NEURONS, L2_DIST, SEED,
-    load_cifar10, build_model, build_problem,
+    NUM_NEURONS, L2_DIST, SEED, DATABASES,
+    load_data, build_model, build_problem,
     IterativeSubtractionAttack, attack_baseline, score_attack,
     activation_stats, metric_row,
 )
 
 BATCHES = (20, 64, 128, 256, 512, 1024)
 S = 0.95
-FEATURES = 32 * 32 * 3
 
+DEFAULT_DATABASE = "mnist"
 
 def main():
-  print("Loading CIFAR-10 ...")
-  xt, yt = load_cifar10()
+  print("Loading " + DEFAULT_DATABASE + " ...")
+  xt, yt = load_data(DEFAULT_DATABASE, B=max(BATCHES),train=True)
   print(f"N={NUM_NEURONS}  s={S}  threshold L2<{L2_DIST}  seed={SEED}\n")
 
-  model = build_model(FEATURES, num_classes=10, n_neurons=NUM_NEURONS, soliton=(0.05, 0.1), seed=SEED)
+  model = build_model(*DATABASES[DEFAULT_DATABASE], n_neurons=NUM_NEURONS, soliton=(0.05, 0.1), s=S,seed=SEED)
 
   res = {}
   for B in BATCHES:
