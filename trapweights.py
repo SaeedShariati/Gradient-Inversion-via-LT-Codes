@@ -245,8 +245,9 @@ class TrapModel:
   """
 
   def __init__(self, W1, b1, downstream, num_classes):
-    self.W1 = tf.constant(W1, DTYPE)
-    self.b1 = tf.constant(b1, DTYPE)
+    with _device():
+      self.W1 = tf.constant(W1, DTYPE)
+      self.b1 = tf.constant(b1, DTYPE)
     self.downstream = downstream
     self.num_classes = num_classes
 
