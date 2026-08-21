@@ -21,8 +21,8 @@ import tensorflow as tf
 import numpy as np
 import itertools
 
-MODES = ('soliton_free', 'soliton_data','None') 
-#none, zero bias (can set s)
+MODES = ('soliton_free', 'soliton_data','trap-weights',) 
+#trap-weights, zero bias (can set s)
 #soliton_free, is data free (s=1) - random weights
 #soliton_data users server's own batches to calibrate the bias (s=1) - random weights
 MIRRORED = (False ,True)
@@ -37,12 +37,13 @@ def run_mode(mode,mirrored, xt, yt):
   rows = {}
   for B in BATCHES:
     x_b = x_b[:B] if mode == 'soliton_data' else None
-    if mode == 'None':
-      model = build_model(*DATABASES[DEFAULT_DATABASE], mirrored=mirrored, mode=mode, s=S)
+    
+    if mode == 'trap-weights':
+      model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, s=S)
     elif mode == 'soliton_free':
-      model = build_model(*DATABASES[DEFAULT_DATABASE], mirrored=mirrored, mode=mode, soliton=SOLITON, B=B)
+      model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, soliton=SOLITON, B=B)
     else:
-      model = build_model(*DATABASES[DEFAULT_DATABASE], mirrored=mirrored, mode=mode, soliton=SOLITON,
+      model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, soliton=SOLITON,
                           calib_x=x_b)
     prob = build_problem(model, xt, yt, B)
     base = attack_baseline(prob)

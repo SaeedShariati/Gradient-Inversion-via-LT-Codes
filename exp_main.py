@@ -3,7 +3,7 @@
 Main results: extraction-recall, label accuracy, certification margins.
 """
 from trapweights import (
-    NUM_NEURONS, L2_DIST, SEED, DATABASES,
+    L2_DIST, SEED, DATABASES,
     load_data, build_model, build_problem,
     IterativeSubtractionAttack, attack_baseline, score_attack,
     activation_stats, metric_row,
@@ -11,7 +11,7 @@ from trapweights import (
 
 BATCHES = (20, 64, 128, 256, 512, 1024)
 S = 0.95
-
+NUM_NEURONS = 4000              # width of the attacked layer
 DEFAULT_DATABASE = "mnist"
 
 def main():

@@ -181,7 +181,7 @@ def analytic_biases(W1, degrees, B):
   return -(mu + sd * q)
 
 
-def build_model(input_dim, num_classes, n_neurons=NUM_NEURONS,
+def build_model(input_dim, num_classes, n_neurons=1000,
                 mode='None',mirrored = False, s=1.0, sigma=SIGMA, seed=SEED,
                 downstream=None, soliton=(0.05, 0.1), B=None, calib_x=None):
   """The server's model: Dense(n_neurons) -> ReLU -> `downstream` -> logits.
@@ -199,7 +199,7 @@ def build_model(input_dim, num_classes, n_neurons=NUM_NEURONS,
   `downstream` to change the rest of the architecture.
   """
   rng = np.random.default_rng(seed)
-  if mode == 'None':
+  if mode == 'trap-weights':
     W1 = make_W1(rng, s, n_neurons, input_dim, sigma, mirrored)
     b1 = np.zeros(n_neurons)
   elif mode in ('soliton_free', 'soliton_data'):
