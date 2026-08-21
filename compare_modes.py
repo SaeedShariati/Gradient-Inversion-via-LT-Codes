@@ -12,7 +12,7 @@ attack:
 
 """
 from trapweights import (
-    NUM_NEURONS, L2_DIST, SEED, DATABASES,
+    L2_DIST, SEED, DATABASES,
     load_data, build_model, build_problem,
     IterativeSubtractionAttack, attack_baseline, score_attack,
     activation_stats, metric_row,
@@ -26,10 +26,11 @@ MODES = ('soliton_free', 'soliton_data','trap-weights',)
 #soliton_free, is data free (s=1) - random weights
 #soliton_data users server's own batches to calibrate the bias (s=1) - random weights
 MIRRORED = (False ,True)
-BATCHES = (64, 128, 256,300,350,400,512, 1024)
-S = 0.95                  # only used by 'Node' mode
+BATCHES = (64, 128, 256,300,350,400,512, 1024,)
+NUM_NEURONS = 1000              # width of the attacked layer
+S = 0.95                  # only used by 'trap-weights' mode
 SOLITON = (0.07, 0.4)     # Robust Soliton (c, delta)
-DEFAULT_DATABASE = "emnist"
+DEFAULT_DATABASE = "harus"
 
 def run_mode(mode,mirrored, xt, yt):
   if mode == 'soliton_data':

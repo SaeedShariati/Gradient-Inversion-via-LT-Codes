@@ -13,11 +13,10 @@ import contextlib
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
-
+from sklearn.preprocessing import MinMaxScaler
 # ------------------------------------------------------------------ constants
 DATABASES = {"cifar10": (32*32*3, 10), "emnist": (28*28, 62), "fashion_mnist": (28*28, 10), "mnist": (28*28, 10), "cifar100": (32*32*3, 100), 
-  "svhn": (32*32*3, 10)}
-NUM_NEURONS = 1000              # width of the attacked layer
+  "svhn": (32*32*3, 10), 'harus': (561,6)} #harus for tabular data
 L2_DIST = 0.01                  # exact-recovery scoring threshold (post-attack)
 SIGMA = 0.5                     # weight magnitude scale
 SEED = 23
@@ -39,24 +38,23 @@ def _device():
 
 def load_data(dataset, B, train = True):
   """Load data for the specified dataset."""
+  split = 'train' if train else 'test'
   if dataset in ("cifar10", "cifar100", "fashion_mnist", "mnist"):
-    return _load_keras_subset(dataset, train, B)
+    x,y = _load_keras_subset(dataset, train, B)
   elif dataset == "emnist":
-        split = 'train' if train else 'test'
-        x, y = _load_tfds_subset('emnist/byclass', 'train' if train else 'test', B)
-        # tfds returns (28,28,1); squeeze to match Keras MNIST shape (28,28)
-        if x.ndim == 4 and x.shape[-1] == 1:
-            x = x.squeeze(-1)
-        return x, y
+    x, y = _load_tfds_subset('emnist/byclass', split, B)
+    # tfds returns (28,28,1); squeeze to match Keras MNIST shape (28,28)
+    if x.ndim == 4 and x.shape[-1] == 1:
+        x = x.squeeze(-1)
   elif dataset == "svhn":
-      split = 'train' if train else 'test'
-      x, y = _load_tfds_subset('svhn_cropped', 'train' if train else 'test', B)
-      return x, y
-  
+    split = 'train' if train else 'test'
+    x, y = _load_tfds_subset('svhn_cropped', split, B)
+  elif dataset == 'harus':
+    x,y = _load_harus_subset(split,B)
   else:
       raise ValueError(f"Unsupported dataset: {dataset}")
 
-
+  return x,y
 
 def _load_keras_subset(dataset_name, train , B):
     """Load from tf.keras.datasets"""
@@ -89,6 +87,19 @@ def _load_tfds_subset(dataset_name, split, B):
     x = np.array(x, dtype=np.float64) / 255.0
     y = np.array(y).flatten().astype(int)
     return x, y
+
+def _load_harus_subset(split,B):
+  scaler = MinMaxScaler()
+  x_train = np.loadtxt("UCI HAR Dataset/train/X_train.txt",dtype=np.float64)
+  y_train = np.loadtxt("UCI HAR Dataset/train/y_train.txt").astype(int) - 1
+  x_train = scaler.fit_transform(x_train)
+  if(split == 'train'):
+    return x_train[:B],y_train[:B]
+  else:
+    x_test  = np.loadtxt("UCI HAR Dataset/test/X_test.txt",dtype=np.float64)
+    y_test  = np.loadtxt("UCI HAR Dataset/test/y_test.txt").astype(int) - 1
+    x_test = scaler.transform(x_test)
+    return x_test[:B],y_test[:B]
 
 # --------------------- weight construction --------------------------------------
 
