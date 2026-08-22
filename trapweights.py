@@ -186,7 +186,7 @@ def analytic_biases(W1, degrees, B):
   degrees = np.asarray(degrees, dtype=np.float64)
   q = np.array([
       nd.inv_cdf(1.0 - d/B) if (d != B) 
-      else 3 # 3 standard deviations above the mean for d==B, to avoid error ( cdf(3) arppoximately 0.9986 )
+      else -3 # 3 standard deviations below the mean for d==B, to avoid error
       for d in degrees
   ])
   return -(mu + sd * q)
