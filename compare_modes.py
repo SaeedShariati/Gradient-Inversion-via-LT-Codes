@@ -21,7 +21,7 @@ import tensorflow as tf
 import numpy as np
 import itertools
 
-MODES = ('soliton_free', 'soliton_data','trap-weights',) 
+MODES = ('soliton_free', 'soliton_data','trap_weights',) 
 #trap-weights, zero bias (can set s)
 #soliton_free, is data free (s=1) - random weights
 #soliton_data users server's own batches to calibrate the bias (s=1) - random weights
@@ -39,7 +39,7 @@ def run_mode(mode,mirrored, xt, yt):
   for B in BATCHES:
     x_b = x_b[:B] if mode == 'soliton_data' else None
     
-    if mode == 'trap-weights':
+    if mode == 'trap_weights':
       model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, s=S)
     elif mode == 'soliton_free':
       model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, soliton=SOLITON, B=B)
