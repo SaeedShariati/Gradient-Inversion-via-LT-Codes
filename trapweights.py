@@ -14,24 +14,29 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 from sklearn.preprocessing import MinMaxScaler
+from datasets import load_dataset
+from PIL import Image
+import pandas as pd
+import os
+
 # ------------------------------------------------------------------ constants
 DATABASES = {"cifar10": (32*32*3, 10), "emnist": (28*28, 62), "fashion_mnist": (28*28, 10), "mnist": (28*28, 10), "cifar100": (32*32*3, 100), 
-  "svhn": (32*32*3, 10), 'harus': (561,6)} #harus for tabular data
+  "svhn": (32*32*3, 10), 'imagenet':(224*224*3,1000) ,'harus': (561,6)} #harus for tabular data
 L2_DIST = 0.01                  # exact-recovery scoring threshold (post-attack)
 SIGMA = 0.5                     # weight magnitude scale
 SEED = 23
 DTYPE = tf.float64              # residue-scale separation needs float64
 
-ATTACK_DEVICE = '/CPU:0'
+#ATTACK_DEVICE = '/CPU:0'
 
 #to use GPU, the following lines are needed to ensure deterministic behavior.
 #float32 error can affect recall, so it needs to be disabled.
-"""
+
 ATTACK_DEVICE = '/GPU:0'  # for speed, but the cascade may differ from the report
 tf.config.experimental.enable_tensor_float_32_execution(False) 
 tf.config.experimental.enable_op_determinism()
 TF_DETERMINISTIC_OPS=1
-"""
+
 
 def _device():
   return tf.device(ATTACK_DEVICE) if ATTACK_DEVICE else contextlib.nullcontext()
@@ -45,48 +50,50 @@ def load_data(dataset, B, train = True):
     x, y = _load_tfds_subset('emnist/byclass', split, B)
     # tfds returns (28,28,1); squeeze to match Keras MNIST shape (28,28)
     if x.ndim == 4 and x.shape[-1] == 1:
-        x = x.squeeze(-1)
+      x = x.squeeze(-1)
   elif dataset == "svhn":
     split = 'train' if train else 'test'
     x, y = _load_tfds_subset('svhn_cropped', split, B)
   elif dataset == 'harus':
     x,y = _load_harus_subset(split,B)
+  elif dataset == "imagenet":
+    x, y = _load_imagenet_subset(split, B)
   else:
       raise ValueError(f"Unsupported dataset: {dataset}")
 
   return x,y
 
 def _load_keras_subset(dataset_name, train , B):
-    """Load from tf.keras.datasets"""
-    if dataset_name == "cifar10":
-        (x, y), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
-    elif dataset_name == "cifar100":
-        (x, y), (x_test, y_test) = tf.keras.datasets.cifar100.load_data()
-    elif dataset_name == "fashion_mnist":
-        (x, y), (x_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
-    elif dataset_name == "mnist":
-        (x, y), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
-    else:
-        raise ValueError(f"Unknown keras dataset: {dataset_name}")
-    x, y = x[:B], y[:B]
-    x_test, y_test = x_test[:B], y_test[:B]
-    if train:
-      return x.astype(np.float64) / 255.0, y.flatten().astype(int)
-    else:
-      return x_test.astype(np.float64) / 255.0, y_test.flatten().astype(int)
+  """Load from tf.keras.datasets"""
+  if dataset_name == "cifar10":
+    (x, y), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+  elif dataset_name == "cifar100":
+    (x, y), (x_test, y_test) = tf.keras.datasets.cifar100.load_data()
+  elif dataset_name == "fashion_mnist":
+    (x, y), (x_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
+  elif dataset_name == "mnist":
+    (x, y), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
+  else:
+    raise ValueError(f"Unknown keras dataset: {dataset_name}")
+  x, y = x[:B], y[:B]
+  x_test, y_test = x_test[:B], y_test[:B]
+  if train:
+    return x.astype(np.float64) / 255.0, y.flatten().astype(int)
+  else:
+    return x_test.astype(np.float64) / 255.0, y_test.flatten().astype(int)
 
 def _load_tfds_subset(dataset_name, split, B):
-    """split: train or test."""
-    split = f"{split}[:{B}]"
-    ds = tfds.load(dataset_name, split=split, as_supervised=True)
-    x, y = [], []
-    for img, label in tfds.as_numpy(ds):
-        x.append(img)
-        y.append(label)
-    
-    x = np.array(x, dtype=np.float64) / 255.0
-    y = np.array(y).flatten().astype(int)
-    return x, y
+  """split: train or test."""
+  split = f"{split}[:{B}]"
+  ds = tfds.load(dataset_name, split=split, as_supervised=True)
+  x, y = [], []
+  for img, label in tfds.as_numpy(ds):
+      x.append(img)
+      y.append(label)
+  
+  x = np.array(x, dtype=np.float64) / 255.0
+  y = np.array(y).flatten().astype(int)
+  return x, y
 
 def _load_harus_subset(split,B):
   scaler = MinMaxScaler()
@@ -100,7 +107,29 @@ def _load_harus_subset(split,B):
     y_test  = np.loadtxt("UCI HAR Dataset/test/y_test.txt").astype(int) - 1
     x_test = scaler.transform(x_test)
     return x_test[:B],y_test[:B]
+def _load_imagenet_subset(split,B):
+  label_csv = ""
+  images_path = "./imagenet"
+  if split == 'train':
+    labels_csv = "./imagenet_train_labels.csv"
+  else:
+    labels_csv ="./imagenet_test_labels.csv"
 
+  df = pd.read_csv(labels_csv)
+  df = df.iloc[:B]
+  
+  images, labels = [], []
+  for _, row in df.iterrows():
+    img_path = os.path.join(images_path, f"{row['image_id']}.JPEG")
+    img = Image.open(img_path).convert("RGB").resize((224, 224))
+    img = np.array(img, dtype=np.float64) / 255.0
+    images.append(img)
+    labels.append(int(row["label"]))
+  
+  x = np.stack(images)       # (N, 224, 224, 3)
+  y = np.array(labels, int)  # (N,)
+  
+  return x, y
 # --------------------- weight construction --------------------------------------
 
 def trap_column(n, rng, s, sigma=SIGMA):
@@ -467,11 +496,11 @@ class IterativeSubtractionAttack:
       cands = cols[keep]
       srcs = src_rows[keep]
 
-      # one backward-mode pass for all candidates
+      #once batch forward propagation and one backward-mode(vjp) pass for all candidates
       Jp_all, _, z_all = m.JT_p(cands)
       Jp_all, z_all = Jp_all.numpy(), z_all.numpy()
 
-      #one forward-mode pass for all source-row JVPs
+      #one forward-mode(jvp) pass for all source-row JVPs
       Jsrc = m.jvp_rows(z_all, srcs).numpy()      # (M, C)
       pred0 = (Jp_all[np.arange(len(keep)), srcs][:, None] - Jsrc) / B
       r0 = np.abs(pred0 - res_b[srcs][:, None]).min(axis=1)
