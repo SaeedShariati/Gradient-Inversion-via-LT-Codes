@@ -38,6 +38,7 @@ tf.config.experimental.enable_op_determinism()
 TF_DETERMINISTIC_OPS=1
 
 
+
 def _device():
   return tf.device(ATTACK_DEVICE) if ATTACK_DEVICE else contextlib.nullcontext()
 
@@ -566,9 +567,7 @@ class IterativeSubtractionAttack:
 
 
 # ------------------------------------------------------------------ scoring
-# Ground truth enters only here, after the attack, to measure what it
-# achieved.
-
+# Ground truth used only for scoring
 def pairwise_dists(A, B_):
   if len(A) == 0 or len(B_) == 0:
     return np.zeros((len(A), len(B_)))
@@ -577,40 +576,50 @@ def pairwise_dists(A, B_):
   d2 = a2 - 2.0 * (A @ B_.T) + b2
   np.maximum(d2, 0.0, out=d2)
   return np.sqrt(d2, out=d2)
-
-
+  
+from collections import defaultdict
 def score_attack(result, prob, l2_dist=L2_DIST):
-  """
-  Recall / label accuracy / certification margins against ground truth.
-  Matches each recovered sample to its nearest true batch element.
-  """
-  x, y, B = prob['x'], prob['y'], prob['B']
-  rec = result['samples']
-  if not rec:
-    return {'recall': 0.0, 'lab_acc': 0.0, 'B0': 0,
-            'genuine_eps': [], 'matched': []}
-  imgs = np.stack([f['x'] for f in rec])
-  d = pairwise_dists(imgs, x)
-  matched, lab_ok, eps = [], 0, []
-  used = set()
-  for k, f in enumerate(rec):
-    i = int(np.argmin(d[k]))
-    exact = d[k, i] < l2_dist
-    matched.append({'rec': k, 'true': i, 'dist': float(d[k, i]),
-                    'exact': bool(exact), 'eps': f['eps'],
-                    'label': f['label'], 'true_label': int(y[i]),
-                    'iteration': f['iteration']})
-    if exact and i not in used:
-      used.add(i)
-      eps.append(f['eps'])
-      lab_ok += int(f['label'] == int(y[i]))
-  return {'recall': len(used) / B,
-          'lab_acc': lab_ok / len(used) if used else 0.0,
-          'B0': len(used),
-          'genuine_eps': eps,
-          'matched': matched}
-
-
+    x, y, B = prob['x'], prob['y'], prob['B']
+    rec = result['samples']
+    if not rec:
+        return {'recall': 0.0, 'lab_acc': 0.0, 'B0': 0,
+                'genuine_eps': [], 'matched': []}
+    
+    imgs = np.stack([f['x'] for f in rec])
+    gt_by_label = defaultdict(list)
+    for i, label in enumerate(y):
+        gt_by_label[int(label)].append(i)
+    
+    used = set()
+    lab_ok = 0
+    eps = []
+    matched = []
+    
+    for k, f in enumerate(rec):
+        label = f['label']
+        candidates = gt_by_label.get(label, [])
+        if not candidates:
+            continue
+        # Only compute distances to same label ground truth
+        dists = np.linalg.norm(imgs[k] - x[candidates], axis=1)
+        idx = int(np.argmin(dists))
+        i = candidates[idx]
+        exact = dists[idx] < l2_dist
+        
+        matched.append({'rec': k, 'true': i, 'dist': float(dists[idx]),
+                        'exact': bool(exact), 'eps': f['eps'],
+                        'label': label, 'true_label': int(y[i]),
+                        'iteration': f['iteration']})
+        if exact and i not in used:
+            used.add(i)
+            eps.append(f['eps'])
+            lab_ok += int(label == int(y[i]))
+    
+    return {'recall': len(used) / B,
+            'lab_acc': lab_ok / len(used) if used else 0.0,
+            'B0': len(used),
+            'genuine_eps': eps,
+            'matched': matched}
 def attack_baseline(prob):
   """used in When The Curious Abondon Honesty paper, uses ground truth to find singletons"""
   x = prob['x']
