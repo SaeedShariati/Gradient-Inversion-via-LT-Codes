@@ -226,14 +226,14 @@ def build_model(input_dim, num_classes, n_neurons=1000,
                 downstream=None, soliton=(0.05, 0.1), B=None, calib_x=None):
   """The server's model: Dense(n_neurons) -> ReLU -> `downstream` -> logits.
 
-  mode selects the first-layer construction: soliton_free, soliton_data, or None
+  mode selects the first-layer construction: soliton_free, soliton_data, trap-weights, or passive
   mirrored selects the first layer weight construction: mirrored or independent.
-  `s` is meaningful only for 'independent' / 'mirrored';
-  the soliton modes set activation fractions per row through the bias, so s is ignored there.
-
+  `s` is meaningful only for trap-weights;
+  passive has uses s=1 and mirrored = False
+  the soliton modes use s=1.
+  
   `downstream` is a callable mapping the ReLU activation tensor to the logit
-  tensor; it may contain anything differentiable.  Default: one Dense layer
-  to `num_classes` logits (Glorot uniform from the same generator).
+  tensor
 
   Returns a TrapModel.  Only the first layer's structure is fixed; swap
   `downstream` to change the rest of the architecture.
@@ -241,6 +241,9 @@ def build_model(input_dim, num_classes, n_neurons=1000,
   rng = np.random.default_rng(seed)
   if mode == 'trap_weights':
     W1 = make_W1(rng, s, n_neurons, input_dim, sigma, mirrored)
+    b1 = np.zeros(n_neurons)
+  elif mode == 'passive':
+    W1 = make_W1(rng, 1.0, n_neurons, input_dim, sigma, False)
     b1 = np.zeros(n_neurons)
   elif mode in ('soliton_free', 'soliton_data'):
     if calib_x is not None:
@@ -568,14 +571,6 @@ class IterativeSubtractionAttack:
 
 # ------------------------------------------------------------------ scoring
 # Ground truth used only for scoring
-def pairwise_dists(A, B_):
-  if len(A) == 0 or len(B_) == 0:
-    return np.zeros((len(A), len(B_)))
-  a2 = np.einsum('ij,ij->i', A, A)[:, None]
-  b2 = np.einsum('ij,ij->i', B_, B_)[None, :]
-  d2 = a2 - 2.0 * (A @ B_.T) + b2
-  np.maximum(d2, 0.0, out=d2)
-  return np.sqrt(d2, out=d2)
   
 from collections import defaultdict
 def score_attack(result, prob, l2_dist=L2_DIST):
@@ -620,15 +615,6 @@ def score_attack(result, prob, l2_dist=L2_DIST):
             'B0': len(used),
             'genuine_eps': eps,
             'matched': matched}
-def attack_baseline(prob):
-  """used in When The Curious Abondon Honesty paper, uses ground truth to find singletons"""
-  x = prob['x']
-  cols, _ = ratio_columns(prob['gw'], prob['gb'])
-  d = pairwise_dists(cols, x)
-  hit = d < L2_DIST
-  return {'G1': int(hit.any(axis=1).sum()) if len(cols) else 0,
-          'B0': int(hit.any(axis=0).sum()),
-          'recall': int(hit.any(axis=0).sum()) / prob['B']}
 
 
 def activation_stats(prob):
