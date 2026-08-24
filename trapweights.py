@@ -404,6 +404,9 @@ def ratio_columns(res_w, res_b, tol=1e-12):
   live = (~np.isnan(r).any(axis=0)
           & ~np.isinf(r).any(axis=0)
           & (np.abs(res_b) > tol))
+
+  in_bounds = (r >= -0.1).all(axis=0) & (r <= 1.1).all(axis=0)
+  live = in_bounds&live
   return r[:, live].T, np.where(live)[0]
 
 
@@ -454,8 +457,8 @@ class IterativeSubtractionAttack:
         [r[k, label] for k, j in enumerate(rows) if j in fit_rows]))
     return eps < self.cert_tol, label, eps, fit_rows
   # ---- the loop (Section 2.4) ------------------------------------------
-
   def run(self, gw, gb):
+    from scipy.spatial.distance import cdist
     """Algorithm 1.  Autodiff is batched across candidates: per iteration
     this costs one backward pass for all J^T p, one forward-mode pass for
     all source-row JVPs (stage 1), one forward-mode pass for all surviving
@@ -472,27 +475,35 @@ class IterativeSubtractionAttack:
       cols, src_rows = ratio_columns(res_w, res_b, self.ratio_tol)
       if len(cols) == 0:
         break
+      #print(len(cols))
+      keep = []
+      alias = {}
+      rec_arr = np.stack([f['x'] for f in recovered]) if recovered else None
 
-      # deduplicate candidates
-      keep, alias = [], {}                    # keep position -> [src rows]
       for k in range(len(cols)):
-        hit = None
-        for q in keep:
-          if np.linalg.norm(cols[k] - cols[q]) < self.dedup_tol:
-            hit = q
-            break
-        if hit is not None:
-          alias[keep.index(hit)].append(int(src_rows[k]))
-          continue
-        if any(np.linalg.norm(cols[k] - f['x']) < self.dedup_tol
-               for f in recovered):
-          productive.add(int(src_rows[k]))    # re-reconstruction of a
-          continue                            # certified sample
+        # Check against already-kept candidates
+        if keep:
+          dists = cdist(cols[k:k+1], cols[keep], metric='euclidean')[0]  # (len_keep,)
+          hits = np.where(dists < self.dedup_tol)[0]
+          if len(hits) > 0:
+            alias[hits[0]].append(int(src_rows[k]))
+            continue
+
+        # Check against previously recovered samples
+        if rec_arr is not None:
+          dists = cdist(cols[k:k+1], rec_arr, metric='euclidean')[0]  # (R,)
+          if dists.min() < self.dedup_tol:
+            productive.add(int(src_rows[k]))
+            continue
+
+        # New unique candidate
         alias[len(keep)] = [int(src_rows[k])]
         keep.append(k)
+
       if not keep:
         trace.append({'iter': it, 'live': len(cols), 'new': 0})
         break
+
       cands = cols[keep]
       srcs = src_rows[keep]
 
