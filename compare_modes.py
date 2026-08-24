@@ -13,7 +13,7 @@ attack:
   passive: non-mirrored, S=1
 """
 from trapweights import (
-    L2_DIST, SEED, DATABASES,
+    L2_DIST, DATABASES,
     load_data, build_model, build_problem,
     IterativeSubtractionAttack, score_attack,
     activation_stats, metric_row,
@@ -30,9 +30,10 @@ CHECK_PASSIVE = True
 MIRRORED = (False ,True)
 BATCHES = (64, 128, 256,300,350,400,512, 1024,)
 NUM_NEURONS = 1000              # width of the attacked layer
+SEED = 23
 S = 0.95                 # only used by 'trap-weights' mode
 SOLITON = (0.07, 0.4)     # Robust Soliton (c, delta)
-DEFAULT_DATABASE = "cifar100"
+DEFAULT_DATABASE = "mnist"
 
 def run_mode(mode,mirrored, xt, yt):
   if mode == 'soliton_data':
@@ -42,14 +43,14 @@ def run_mode(mode,mirrored, xt, yt):
     x_b = x_b[:B] if mode == 'soliton_data' else None
     
     if mode == 'trap_weights':
-      model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, s=S)
+      model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, s=S, seed=SEED)
     elif mode == 'soliton_free':
-      model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, soliton=SOLITON, B=B)
+      model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, soliton=SOLITON, B=B,seed=SEED)
     elif mode == 'passive':
-      model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mode=mode)
+      model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mode=mode,seed=SEED)
     else:
       model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, soliton=SOLITON,
-                          calib_x=x_b)
+                          calib_x=x_b,seed=SEED)
     prob = build_problem(model, xt, yt, B)
     peel = IterativeSubtractionAttack(model, B).run(prob['gw'], prob['gb'])
     sc = score_attack(peel, prob)
@@ -74,10 +75,49 @@ def main():
       print(f"  mode={mode},Mirrored={mirrored}  BATCHES={BATCHES}")
       results[mode,mirrored] = run_mode(mode, mirrored, xt, yt)
 
-  # ------------------------------------------------------------- summary
   if(CHECK_PASSIVE):
     print(f"  mode=passive,Mirrored={False}  BATCHES={BATCHES}")
     results['passive',False] = run_mode('passive',False,xt, yt)
+  # ------------------------------------------------------------- write table to fild
+
+    c, delta = SOLITON
+    filename = (
+        f"{DEFAULT_DATABASE}_"
+        f"seed{SEED}_"
+        f"soliton{c}_{delta}_"
+        f"S{S}.csv"
+    )
+
+    # ---- write CSV ------------------------------------------------------
+    import csv
+
+    # header
+    csv_header = ["B"]
+    for mode, mirrored in itertools.product(MODES, MIRRORED):
+        label = f"{mode}_{'mirrored' if mirrored else 'independent'}"
+        csv_header.append(label)
+    if CHECK_PASSIVE:
+        csv_header.append("passive")
+
+    # rows
+    csv_rows = []
+    for B in BATCHES:
+        row = [B]
+        for m, mirrored in itertools.product(MODES, MIRRORED):
+            row.append(results[m, mirrored][B]['sc']['recall'])
+        if CHECK_PASSIVE:
+            row.append(results['passive', False][B]['sc']['recall'])
+        csv_rows.append(row)
+
+    with open(filename, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(csv_header)
+        writer.writerows(csv_rows)
+
+    print(f"\n[Saved CSV: {filename}]")
+
+  # ------------------------------------------------------------- print summary
+
   print("\n\n" + "=" * 84)
   print("extraction recall, iterative attack (certificate-admitted)")
   print("=" * 84)
