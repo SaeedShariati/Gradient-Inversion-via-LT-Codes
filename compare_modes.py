@@ -34,10 +34,10 @@ DEFAULT_DATABASE = "harus"
 
 def run_mode(mode,mirrored, xt, yt):
   if mode == 'soliton_data':
-    x_b, y_b = load_data(DEFAULT_DATABASE, B=max(BATCHES),train=False)
+    x_calib, _ = load_data(DEFAULT_DATABASE, B=max(BATCHES),train=False)
   rows = {}
   for B in BATCHES:
-    x_b = x_b[:B] if mode == 'soliton_data' else None
+    x_b = x_calib[:B] if mode == 'soliton_data' else None
     
     if mode == 'trap_weights':
       model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, s=S)
