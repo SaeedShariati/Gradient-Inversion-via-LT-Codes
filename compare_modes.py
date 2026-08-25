@@ -59,7 +59,9 @@ def run_mode(mode,mirrored, xt, yt):
       'peel': {
           'iters': peel['iters'],
           'G1': peel['G1'],
+          'trace':peel['trace']
       },
+      'base':{'recall': base['recall']},
       'A': A,}
     print(f"    B={B:>4}  base R={base['recall']:.3f}  "
           f"peel R={sc['recall']:.3f}  iters={peel['iters']:>2}  A={A}  "
