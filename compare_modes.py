@@ -51,7 +51,16 @@ def run_mode(mode,mirrored, xt, yt):
     peel = IterativeSubtractionAttack(model, B).run(prob['gw'], prob['gb'])
     sc = score_attack(peel, prob)
     A = activation_stats(prob)[0]
-    rows[B] = dict(base=base, peel=peel, sc=sc, A=A)
+    rows[B] = {'sc': {
+          'recall': sc['recall'],
+          'lab_acc': sc['lab_acc'],
+          'B0': sc['B0'],
+      },
+      'peel': {
+          'iters': peel['iters'],
+          'G1': peel['G1'],
+      },
+      'A': A,}
     print(f"    B={B:>4}  base R={base['recall']:.3f}  "
           f"peel R={sc['recall']:.3f}  iters={peel['iters']:>2}  A={A}  "
           f"G1={peel['G1']}  exact={sc['B0']}  lab_acc={sc['lab_acc']:.3f}",
