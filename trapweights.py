@@ -479,28 +479,22 @@ class IterativeSubtractionAttack:
       cols, src_rows = ratio_columns(res_w, res_b, self.ratio_tol)
       if len(cols) == 0:
         break
-      #print(len(cols))
+      M = len(cols)
       keep = []
       alias = {}
       rec_arr = np.stack([f['x'] for f in recovered]) if recovered else None
-
-      for k in range(len(cols)):
-        # Check against already-kept candidates
+      full_dists = cdist(cols, cols, metric='euclidean') if M > 0 else np.zeros((0, 0))
+      rec_dists = cdist(cols, rec_arr, metric='euclidean') if rec_arr is not None else None
+      for k in range(M):
         if keep:
-          dists = cdist(cols[k:k+1], cols[keep], metric='euclidean')[0]  # (len_keep,)
-          hits = np.where(dists < self.dedup_tol)[0]
+          hits = np.where(full_dists[k, keep] < self.dedup_tol)[0]
           if len(hits) > 0:
             alias[hits[0]].append(int(src_rows[k]))
             continue
-
-        # Check against previously recovered samples
-        if rec_arr is not None:
-          dists = cdist(cols[k:k+1], rec_arr, metric='euclidean')[0]  # (R,)
-          if dists.min() < self.dedup_tol:
+        if rec_dists is not None:
+          if rec_dists[k].min() < self.dedup_tol:
             productive.add(int(src_rows[k]))
             continue
-
-        # New unique candidate
         alias[len(keep)] = [int(src_rows[k])]
         keep.append(k)
 
