@@ -413,6 +413,15 @@ def ratio_columns(res_w, res_b, tol=1e-12):
   live = in_bounds&live
   return r[:, live].T, np.where(live)[0]
 
+def ratio_columns_tf(res_w, res_b, tol=1e-12):
+    res_b_tf = tf.constant(res_b, dtype=DTYPE)
+    r = res_w * (1.0 / res_b_tf)
+    live = (tf.reduce_all(tf.math.is_finite(r), axis=0) 
+            & (tf.abs(res_b_tf) > tol))
+    in_bounds = tf.reduce_all((r >= -0.1) & (r <= 1.1), axis=0)
+    live = live & in_bounds
+    idx = tf.where(live)[:, 0]
+    return tf.gather(r, idx, axis=1).numpy().T, idx.numpy()
 
 class IterativeSubtractionAttack:
   """
