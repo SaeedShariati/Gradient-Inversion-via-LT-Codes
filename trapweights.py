@@ -470,6 +470,21 @@ class IterativeSubtractionAttack:
         [r[k, label] for k, j in enumerate(rows) if j in fit_rows]))
     return eps < self.cert_tol, label, eps, fit_rows
   # ---- the loop (Section 2.4) ------------------------------------------
+  
+  def gpu_cdist_chunked(A, B, chunk=5):
+    M, d = A.shape
+    N = B.shape[0]
+    A_tf = tf.constant(A, dtype=DTYPE)
+    B_tf = tf.constant(B, dtype=DTYPE)
+    dists = np.empty((M, N), dtype=np.float64)
+    for start in range(0, M, chunk):
+      end = min(start + chunk, M)
+      a_chunk = A_tf[start:end]
+      diff = a_chunk[:, None, :] - B_tf[None, :, :]
+      d2 = tf.reduce_sum(diff ** 2, axis=2)
+      dists[start:end] = tf.sqrt(d2).numpy()
+    return dists
+
   def run(self, gw, gb):
     from scipy.spatial.distance import cdist
     """Algorithm 1.  Autodiff is batched across candidates: per iteration
