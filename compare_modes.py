@@ -23,9 +23,8 @@ BATCHES = (64, 128, 256, 300, 350, 400, 512, 600, 700, 800, 900, 1024)
 NUM_NEURONS = 1000
 
 # tuple of experiments to run
-DATABASES_LIST = ("mnist", )
-#"emnist", "svhn", "harus" , "fashion_mnist", "cifar10", "cifar100")   # add/remove as needed
-SEEDS = (23, 42, 99)
+DATABASES_LIST = ("mnist", "emnist", "svhn", "harus" , "fashion_mnist", "cifar10", "cifar100", "imagenet")   # add/remove as needed
+SEEDS = (55726, 42523, 93687, 32443, 56581)
 
 S = 0.95
 SOLITON = (0.07, 0.4)
@@ -76,7 +75,18 @@ def run_mode(mode, mirrored, xt, yt, B, seed,db,x_calib=None):
     f"G1={peel['G1']:<3}  exact={sc['B0']:<3}  lab_acc={sc['lab_acc']:.3f}",
     flush=True
   )
-  return dict(peel=peel, sc=sc, A=A)
+  return {
+      'sc': {
+          'recall': sc['recall'],
+          'lab_acc': sc['lab_acc'],
+          'B0': sc['B0'],
+      },
+      'peel': {
+          'iters': peel['iters'],
+          'G1': peel['G1'],
+      },
+      'A': A,
+  }
 
 
 def run_all_batches(db, seed, xt, yt):
