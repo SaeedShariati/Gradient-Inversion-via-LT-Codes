@@ -3,7 +3,7 @@
 Compare the four first-layer initialization methods on the iterative-subtraction
 attack across multiple databases and seeds.
 """
-from trapweights import (
+from peeling_attack import (
     L2_DIST, DATABASES,
     load_data, build_model, build_problem,
     IterativeSubtractionAttack, score_attack,
