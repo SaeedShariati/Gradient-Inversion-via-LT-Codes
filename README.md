@@ -1,1 +1,1 @@
-trapweights.py has the common functionality needed for expermients. exp_main.py generates tables for the trap weights mechanism. compare_modes.py, compares all combinations of specified configurations.
+peeling_attack.py has the common functionality needed for expermients. compare_modes.py, compares all combinations of specified configurations, and generates CSVs for their tables. average_seeds.py averages tables for different seeds. csv_to_latex.py converts a CSV to a latex table.
