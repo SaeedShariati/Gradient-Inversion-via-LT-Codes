@@ -2,13 +2,15 @@
 """
 csv_to_latex.py
 
-Reads averaged CSVs from `averages/` and emits a single compact LaTeX table.
+Reads averaged CSVs from `averages/<database>/<setting>_averaged.csv` and writes
+one LaTeX table per setting. Each table lists every database that contains that
+setting; databases missing the setting are omitted from that table.
 """
 import os
 import glob
 import pandas as pd
 
-# ------------------------------------------------------------------ config
+# config
 METHOD_ORDER = [
     'soliton_free_independent',
     'soliton_free_mirrored',
@@ -16,7 +18,7 @@ METHOD_ORDER = [
     'soliton_data_mirrored',
     'trap_weights_independent',
     'trap_weights_mirrored',
-    'passive', 
+    'passive',
 ]
 
 METHOD_NAMES = {
@@ -45,10 +47,16 @@ DB_DISPLAY = {
     'cifar10': 'CIFAR-10',
     'cifar100': 'CIFAR-100',
     'harus': 'HARUS',
-    'imagenet':'Imagenet',
+    'imagenet': 'Imagenet',
 }
 
-# ------------------------------------------------------------------ helpers
+# Default parameters used when not overridden by the setting name.
+DEFAULT_C = 0.07
+DEFAULT_DELTA = 0.4
+DEFAULT_N = 1000
+
+
+# helpers
 def fmt_val(v):
     s = f"{v:.3f}"
     return f"\\textbf{{{s}}}" if v > 0.50 else s
@@ -58,19 +66,56 @@ def db_label(name):
     return DB_DISPLAY.get(name, name.replace('_', '-').title())
 
 
+def parse_setting(filename):
+    """Return the setting name from a file named `<setting>_averaged.csv`."""
+    base = os.path.basename(filename)
+    return base.replace('_averaged.csv', '')
 
-def main():
-    files = sorted(glob.glob("averages/*_averaged.csv"))
-    if not files:
-        print("No averaged CSVs found in averages/")
-        return
 
-    # Load data and discover all B values
+def setting_caption_desc(setting):
+    """
+    Convert a setting name like 'S95', 'C5_S99', 'C7_S99', 'S95_2000'
+    into a LaTeX-safe caption fragment describing (c, delta), S and N.
+    """
+    c = DEFAULT_C
+    delta = DEFAULT_DELTA
+    S = None
+    N = DEFAULT_N
+
+    for token in setting.split('_'):
+        if token.startswith('C') and token[1:].isdigit():
+            c = int(token[1:]) / 100.0
+        elif token.startswith('S') and token[1:].isdigit():
+            S = int(token[1:]) / 100.0
+        elif token.isdigit():
+            N = int(token)
+
+    parts = [f"(c, $\\delta$) = ({c:.2f}, {delta:.1f})"]
+    if S is not None:
+        parts.append(f"S = {S:.2f}")
+    parts.append(f"N = {N}")
+
+    return ", ".join(parts)
+
+
+def discover_files():
+    """Return a dict: setting -> [(database, csv_path), ...]."""
+    files = sorted(glob.glob("averages/*/*_averaged.csv"))
+    settings = {}
+    for f in files:
+        db = os.path.basename(os.path.dirname(f))
+        setting = parse_setting(f)
+        settings.setdefault(setting, []).append((db, f))
+    return settings
+
+
+def render_table(setting, db_files):
+    """Build the LaTeX table body for one setting."""
+    # Load data and discover all B values across databases in this setting
     data = {}
     all_bs = set()
-    for f in files:
-        db = os.path.basename(f).replace('_averaged.csv', '')
-        df = pd.read_csv(f)
+    for db, path in db_files:
+        df = pd.read_csv(path)
         data[db] = df
         all_bs.update(df['B'].astype(int).tolist())
 
@@ -78,7 +123,7 @@ def main():
     nB = len(B_vals)
     last_col = 2 + nB          # col 1 = Dataset, col 2 = Method, rest = B's
 
-    # Only keep methods that actually appear in the files
+    # Only keep methods that actually appear in this setting's files
     present_methods = [m for m in METHOD_ORDER
                        if any(m in df.columns for df in data.values())]
     n_methods = len(present_methods)
@@ -87,8 +132,12 @@ def main():
     lines.append(r"% Requires: \usepackage{booktabs, multirow}")
     lines.append(r"\begin{table}[htbp]")
     lines.append(r"\centering")
-    lines.append(r"\caption{Average extraction recall across seeds (iterative attack, certificate-admitted). Bold indicates recall $> 0.50$.}")
-    lines.append(r"\label{tab:recall_avg}")
+    lines.append(
+        r"\caption{Average extraction recall across seeds (iterative attack, "
+        r"certificate-admitted) for " + setting_caption_desc(setting) + r". "
+        r"Bold indicates recall $> 0.50$.}"
+    )
+    lines.append(r"\label{tab:recall_avg_" + setting + r"}")
     lines.append(r"\scriptsize")
     lines.append(r"\setlength{\tabcolsep}{2.5pt}")
     lines.append(r"\renewcommand{\arraystretch}{0.85}")
@@ -138,10 +187,32 @@ def main():
     lines.append(r"\end{tabular}")
     lines.append(r"\end{table}")
 
-    tex = "\n".join(lines)
-    with open("averages_table.tex", "w") as f:
-        f.write(tex)
-    print("Saved: averages_table.tex")
+    return "\n".join(lines)
+
+
+def main():
+    settings = discover_files()
+    if not settings:
+        print("No averaged CSVs found in averages/*/_averaged.csv")
+        return
+
+    combined = []
+    for setting, db_files in sorted(settings.items()):
+        tex = render_table(setting, db_files)
+        outname = f"averages_table_{setting}.tex"
+        with open(outname, "w") as f:
+            f.write(tex)
+        print(f"Saved: {outname}")
+
+        combined.append(f"% Setting: {setting}")
+        combined.append(tex)
+        combined.append("")
+
+    combined_path = "averages_table.tex"
+    with open(combined_path, "w") as f:
+        f.write("\n".join(combined))
+    print(f"Saved: {combined_path}")
+
 
 if __name__ == '__main__':
     main()
