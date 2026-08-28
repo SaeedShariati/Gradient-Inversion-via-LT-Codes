@@ -1,57 +1,82 @@
 #!/usr/bin/env python3
 """
 Compare the four first-layer initialization methods on the iterative-subtraction
-attack:
-  Trap-weights: (mode = None)
-  mirrored       Boenisch-style trap weights, scale s
-  independent    corrected trap weights, scale s
-
-  Trap-Biases: (mode = soliton_free or soliton_data)
-  soliton_free   LT-code, data-free: degrees ~ RobustSoliton(B), uses Trap-Biases, s=1 mirrored or independent
-  soliton_data   LT-code same degrees, biases set using the server's own batch, s=1 mirrored or independent
-
+attack across multiple databases and seeds.
 """
 from trapweights import (
-    L2_DIST, SEED, DATABASES,
+    L2_DIST, DATABASES,
     load_data, build_model, build_problem,
-    IterativeSubtractionAttack, attack_baseline, score_attack,
-    activation_stats, metric_row,
+    IterativeSubtractionAttack, score_attack,
+    activation_stats,
 )
 import tensorflow as tf
 import numpy as np
 import itertools
+import csv
+import os
 
-MODES = ('soliton_free', 'soliton_data','trap_weights',) 
-#trap-weights, zero bias (can set s)
-#soliton_free, is data free (s=1) - random weights
-#soliton_data users server's own batches to calibrate the bias (s=1) - random weights
-MIRRORED = (False ,True)
-BATCHES = (64, 128, 256,300,350,400,512, 1024,)
-NUM_NEURONS = 1000              # width of the attacked layer
-S = 0.95                  # only used by 'trap-weights' mode
-SOLITON = (0.07, 0.4)     # Robust Soliton (c, delta)
-DEFAULT_DATABASE = "harus"
+# --------------------------------------------------------------------- config
+MODES = ('soliton_free', 'soliton_data', 'trap_weights')
+CHECK_PASSIVE = True
+MIRRORED = (False, True)
+BATCHES = (64, 128, 256, 300, 350, 400, 512, 600, 700, 800, 900, 1024)
+NUM_NEURONS = 1000
 
-def run_mode(mode,mirrored, xt, yt):
-  if mode == 'soliton_data':
-    x_calib, _ = load_data(DEFAULT_DATABASE, B=max(BATCHES),train=False)
-  rows = {}
-  for B in BATCHES:
-    x_b = x_calib[:B] if mode == 'soliton_data' else None
-    
-    if mode == 'trap_weights':
-      model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, s=S)
-    elif mode == 'soliton_free':
-      model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, soliton=SOLITON, B=B)
-    else:
-      model = build_model(*DATABASES[DEFAULT_DATABASE],n_neurons=NUM_NEURONS , mirrored=mirrored, mode=mode, soliton=SOLITON,
-                          calib_x=x_b)
-    prob = build_problem(model, xt, yt, B)
-    base = attack_baseline(prob)
-    peel = IterativeSubtractionAttack(model, B).run(prob['gw'], prob['gb'])
-    sc = score_attack(peel, prob)
-    A = activation_stats(prob)[0]
-    rows[B] = {'sc': {
+# tuple of experiments to run
+DATABASES_LIST = ("mnist", "emnist", "svhn", "harus" , "fashion_mnist", "cifar10", "cifar100", "imagenet")   # add/remove as needed
+SEEDS = (55726, 42523, 93687, 32443, 56581)
+
+S = 0.95
+SOLITON = (0.07, 0.4)
+
+# --------------------------------------------------------------------- helpers
+def make_filename(db, seed, soliton, s):
+  c, delta = soliton
+  return (
+    f"{db}_"
+    f"seed{seed}_"
+    f"soliton{c}_{delta}_"
+    f"S{s}.csv"
+  )
+
+
+def run_mode(mode, mirrored, xt, yt, B, seed,db,x_calib=None):
+  """Run a single (mode, mirrored) configuration for one batch size."""
+  if mode == 'trap_weights':
+    model = build_model(
+      *DATABASES[db], n_neurons=NUM_NEURONS,
+      mirrored=mirrored, mode=mode, s=S, seed=seed
+    )
+  elif mode == 'soliton_free':
+    model = build_model(
+      *DATABASES[db], n_neurons=NUM_NEURONS,
+      mirrored=mirrored, mode=mode, soliton=SOLITON, B=B, seed=seed
+    )
+  elif mode == 'passive':
+    model = build_model(
+      *DATABASES[db], n_neurons=NUM_NEURONS,
+      mode=mode, seed=seed
+    )
+  else:  # soliton_data
+    model = build_model(
+      *DATABASES[db], n_neurons=NUM_NEURONS,
+      mirrored=mirrored, mode=mode, soliton=SOLITON,
+      calib_x=x_calib, seed=seed
+    )
+
+  prob = build_problem(model, xt, yt, B)
+  peel = IterativeSubtractionAttack(model, B).run(prob['gw'], prob['gb'])
+  sc = score_attack(peel, prob)
+  A = activation_stats(prob)[0]
+
+  print(
+    f"    B={B:>4}  "
+    f"peel R={sc['recall']:.3f}  iters={peel['iters']:>2}  A={A}  "
+    f"G1={peel['G1']:<3}  exact={sc['B0']:<3}  lab_acc={sc['lab_acc']:.3f}",
+    flush=True
+  )
+  return {
+      'sc': {
           'recall': sc['recall'],
           'lab_acc': sc['lab_acc'],
           'B0': sc['B0'],
@@ -59,92 +84,116 @@ def run_mode(mode,mirrored, xt, yt):
       'peel': {
           'iters': peel['iters'],
           'G1': peel['G1'],
-          'trace':peel['trace']
       },
-      'base':{'recall': base['recall']},
-      'A': A,}
-    print(f"    B={B:>4}  base R={base['recall']:.3f}  "
-          f"peel R={sc['recall']:.3f}  iters={peel['iters']:>2}  A={A}  "
-          f"G1={peel['G1']}  exact={sc['B0']}  lab_acc={sc['lab_acc']:.3f}",
-          flush=True)
+      'A': A,
+  }
+
+
+def run_all_batches(db, seed, xt, yt):
+  """Run every mode/mirrored combination across all batch sizes for one db/seed."""
+  rows = {}
+  # Pre-load calibration data once if needed
+  x_calib, _ = load_data(db, B=max(BATCHES), train=False) \
+    if 'soliton_data' in MODES else (None, None)
+
+  for mode in MODES:
+    for mirrored in MIRRORED:
+      print(f"  [{db}] seed={seed}  mode={mode}  mirrored={mirrored}")
+      rows[mode, mirrored] = {}
+      for B in BATCHES:
+        x_b = x_calib[:B] if mode == 'soliton_data' else None
+        rows[mode, mirrored][B] = run_mode(
+          mode, mirrored, xt, yt, B, seed, x_calib=x_b,db=db
+        )
+
+  if CHECK_PASSIVE:
+    print(f"  [{db}] seed={seed}  mode=passive  mirrored=False")
+    rows['passive', False] = {}
+    for B in BATCHES:
+      rows['passive', False][B] = run_mode(
+        'passive', False, xt, yt, B, seed,db=db
+      )
+
   return rows
 
 
-def main():
-  print("Loading " + DEFAULT_DATABASE + " ...")
-  xt, yt = load_data(DEFAULT_DATABASE, B=max(BATCHES),train=True)
-  print(f"N={NUM_NEURONS}  s={S}  soliton(c,delta)={SOLITON}  "
-        f"L2<{L2_DIST}  seed={SEED}\n")
+def write_csv(db, seed, results):
+  """Write the recall table for one (db, seed) into the database folder."""
+  os.makedirs(db, exist_ok=True)
 
-  results = {}
-  for mode in MODES:
-    for mirrored in MIRRORED:
-      print(f"  mode={mode},Mirrored={mirrored}  BATCHES={BATCHES}")
-      results[mode,mirrored] = run_mode(mode, mirrored, xt, yt)
+  filepath = os.path.join(db, make_filename(db, seed, SOLITON, S))
 
-  # ------------------------------------------------------------- summary
-  for mode in MODES:
-    for mirrored in MIRRORED:
-      print(f"\n\nmode={mode} mirrored={mirrored}")
-      print("-" * 84)
-      print(f"{'B':>5} | {'base R':>12} {'peel R':>12} "
-            f"{'gain':>13} {'iters':>6} {'A':>5} {'G1':>5} "
-            f"{'B0':>5} {'lab_acc':>8}")
-      print("-" * 84)
-      for B in BATCHES:
-        r = results[mode,mirrored][B]
-        fac = r['sc']['recall'] / r['base']['recall'] if r['base']['recall'] else float('inf')
-        print(f"{B:>5} | {r['base']['recall']:>12.3f} {r['sc']['recall']:>12.3f} "
-              f"{r['sc']['recall']-r['base']['recall']:>+13.3f} {r['peel']['iters']:>6} "
-              f"{r['A']:>5} {r['peel']['G1']:>5} {r['sc']['B0']:>5} "
-              f"{r['sc']['lab_acc']:>8.3f}")
-      print("-" * 84)
+  # header
+  header = ["B"]
+  for mode, mirrored in itertools.product(MODES, MIRRORED):
+    label = f"{mode}_{'mirrored' if mirrored else 'independent'}"
+    header.append(label)
+  if CHECK_PASSIVE:
+    header.append("passive")
+
+  # rows
+  csv_rows = []
+  for B in BATCHES:
+    row = [B]
+    for m, mirrored in itertools.product(MODES, MIRRORED):
+      row.append(results[m, mirrored][B]['sc']['recall'])
+    if CHECK_PASSIVE:
+      row.append(results['passive', False][B]['sc']['recall'])
+    csv_rows.append(row)
+
+  with open(filepath, "w", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow(header)
+    writer.writerows(csv_rows)
+
+  print(f"\n[Saved CSV: {filepath}]")
+  return filepath
+
+
+def print_console_table(db, seed, results):
+  """Pretty-print the recall table to stdout."""
   print("\n\n" + "=" * 84)
-  print("extraction recall, iterative attack (certificate-admitted)")
+  print(f"[{db}]  seed={seed}  — extraction recall, iterative attack")
   print("=" * 84)
-  print(f"{'B':>5} |" + "|".join(f"{(mode+'_'+('mirrored' if mirrored else 'independent')):<25}" for mode, mirrored in itertools.product(MODES, MIRRORED)))
+
+  header = f"{'B':>5} |" + "|".join(
+    f"{(mode + '_' + ('mirrored' if mirrored else 'independent')):<25}"
+    for mode, mirrored in itertools.product(MODES, MIRRORED)
+  )
+  if CHECK_PASSIVE:
+    header += f"{'|passive':<25}"
+  print(header)
   print("-" * 84)
+
   for B in BATCHES:
-    cells = [f"{results[m,mirrored][B]['sc']['recall']:>25.3f}" for m,mirrored in itertools.product(MODES, MIRRORED)]
+    cells = [
+      f"{results[m, mirrored][B]['sc']['recall']:>25.3f}"
+      for m, mirrored in itertools.product(MODES, MIRRORED)
+    ]
+    if CHECK_PASSIVE:
+      cells.append(
+        f"{results['passive', False][B]['sc']['recall']:>25.3f}"
+      )
     print(f"{B:>5} |" + "|".join(cells))
   print("-" * 84)
 
-  print("\n" + "=" * 84)
-  print("baseline (single-pass) recall")
-  print("=" * 84)
-  print(f"{'B':>5} |" + "|".join(f"{(mode+'_'+('mirrored' if mirrored else 'independent')):<25}" for mode, mirrored in itertools.product(MODES, MIRRORED)))
-  print("-" * 84)
-  for B in BATCHES:
-    cells = [f"{results[m,mirrored][B]['base']['recall']:>25.3f}" for m,mirrored in itertools.product(MODES, MIRRORED)]
-    print(f"{B:>5} |" + "|".join(cells))
-  print("-" * 84)
 
-  print("\n" + "=" * 84)
-  print("precision metrics of the iterative attack, P = Y * rho")
-  print("=" * 84)
-  for mode in MODES:
-    for mirrored in MIRRORED:
-      print(f"  {mode} (mirrored={mirrored})")
-      print(f"  {'B':>5} {'A':>5} {'G1':>5} {'B0':>5} {'P':>6} {'Y':>6} "
-            f"{'rho':>5} {'iters':>6}")
-      for B in BATCHES:
-        r = results[mode,mirrored][B]
-        m = metric_row(r['A'], r['peel']['G1'], r['sc']['B0'], B)
-        print(f"  {B:>5} {r['A']:>5} {r['peel']['G1']:>5} {r['sc']['B0']:>5} "
-              f"{m['P']:>6.3f} {m['Y']:>6.3f} {m['rho']:>5.2f} "
-              f"{r['peel']['iters']:>6}")
-      print("-" * 84)
+# --------------------------------------------------------------------- main
+def main():
+  for db in DATABASES_LIST:
+    print(f"\n{'='*60}")
+    print(f"DATABASE: {db}")
+    print(f"{'='*60}")
 
-  print("\n" + "=" * 84)
-  print("per-iteration traces (iterative attack)")
-  print("=" * 84)
-  for mode in MODES:
-    for mirrored in MIRRORED:
-      for B in BATCHES:
-        t = results[mode,mirrored][B]['peel']['trace']
-        print(f"  {mode}_{'mirrored' if mirrored else 'independent':<13} B={B:>4}: "
-              + ", ".join(f"it{e['iter']}:+{e['new']}" for e in t))
-  print("=" * 84)
+    # load training data once per database (max batch size needed)
+    print(f"Loading {db} ...")
+    xt, yt = load_data(db, B=max(BATCHES), train=True)
+
+    for seed in SEEDS:
+      print(f"\n--- seed = {seed} ---")
+      results = run_all_batches(db, seed, xt, yt)
+      write_csv(db, seed, results)
+      print_console_table(db, seed, results)
 
 
 if __name__ == "__main__":

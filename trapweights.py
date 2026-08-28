@@ -226,14 +226,14 @@ def build_model(input_dim, num_classes, n_neurons=1000,
                 downstream=None, soliton=(0.05, 0.1), B=None, calib_x=None):
   """The server's model: Dense(n_neurons) -> ReLU -> `downstream` -> logits.
 
-  mode selects the first-layer construction: soliton_free, soliton_data, or None
+  mode selects the first-layer construction: soliton_free, soliton_data, trap-weights, or passive
   mirrored selects the first layer weight construction: mirrored or independent.
-  `s` is meaningful only for 'independent' / 'mirrored';
-  the soliton modes set activation fractions per row through the bias, so s is ignored there.
-
+  `s` is meaningful only for trap-weights;
+  passive has uses s=1 and mirrored = False
+  the soliton modes use s=1.
+  
   `downstream` is a callable mapping the ReLU activation tensor to the logit
-  tensor; it may contain anything differentiable.  Default: one Dense layer
-  to `num_classes` logits (Glorot uniform from the same generator).
+  tensor
 
   Returns a TrapModel.  Only the first layer's structure is fixed; swap
   `downstream` to change the rest of the architecture.
@@ -241,6 +241,9 @@ def build_model(input_dim, num_classes, n_neurons=1000,
   rng = np.random.default_rng(seed)
   if mode == 'trap_weights':
     W1 = make_W1(rng, s, n_neurons, input_dim, sigma, mirrored)
+    b1 = np.zeros(n_neurons)
+  elif mode == 'passive':
+    W1 = make_W1(rng, 1.0, n_neurons, input_dim, sigma, False)
     b1 = np.zeros(n_neurons)
   elif mode in ('soliton_free', 'soliton_data'):
     if calib_x is not None:
@@ -410,6 +413,15 @@ def ratio_columns(res_w, res_b, tol=1e-12):
   live = in_bounds&live
   return r[:, live].T, np.where(live)[0]
 
+def ratio_columns_tf(res_w, res_b, tol=1e-12):
+    res_b_tf = tf.constant(res_b, dtype=DTYPE)
+    r = res_w * (1.0 / res_b_tf)
+    live = (tf.reduce_all(tf.math.is_finite(r), axis=0) 
+            & (tf.abs(res_b_tf) > tol))
+    in_bounds = tf.reduce_all((r >= -0.1) & (r <= 1.1), axis=0)
+    live = live & in_bounds
+    idx = tf.where(live)[:, 0]
+    return tf.gather(r, idx, axis=1).numpy().T, idx.numpy()
 
 class IterativeSubtractionAttack:
   """
@@ -458,6 +470,21 @@ class IterativeSubtractionAttack:
         [r[k, label] for k, j in enumerate(rows) if j in fit_rows]))
     return eps < self.cert_tol, label, eps, fit_rows
   # ---- the loop (Section 2.4) ------------------------------------------
+  
+  def gpu_cdist_chunked(A, B, chunk=5):
+    M, d = A.shape
+    N = B.shape[0]
+    A_tf = tf.constant(A, dtype=DTYPE)
+    B_tf = tf.constant(B, dtype=DTYPE)
+    dists = np.empty((M, N), dtype=np.float64)
+    for start in range(0, M, chunk):
+      end = min(start + chunk, M)
+      a_chunk = A_tf[start:end]
+      diff = a_chunk[:, None, :] - B_tf[None, :, :]
+      d2 = tf.reduce_sum(diff ** 2, axis=2)
+      dists[start:end] = tf.sqrt(d2).numpy()
+    return dists
+
   def run(self, gw, gb):
     from scipy.spatial.distance import cdist
     """Algorithm 1.  Autodiff is batched across candidates: per iteration
@@ -476,28 +503,22 @@ class IterativeSubtractionAttack:
       cols, src_rows = ratio_columns(res_w, res_b, self.ratio_tol)
       if len(cols) == 0:
         break
-      #print(len(cols))
+      M = len(cols)
       keep = []
       alias = {}
       rec_arr = np.stack([f['x'] for f in recovered]) if recovered else None
-
-      for k in range(len(cols)):
-        # Check against already-kept candidates
+      full_dists = cdist(cols, cols, metric='euclidean') if M > 0 else np.zeros((0, 0))
+      rec_dists = cdist(cols, rec_arr, metric='euclidean') if rec_arr is not None else None
+      for k in range(M):
         if keep:
-          dists = cdist(cols[k:k+1], cols[keep], metric='euclidean')[0]  # (len_keep,)
-          hits = np.where(dists < self.dedup_tol)[0]
+          hits = np.where(full_dists[k, keep] < self.dedup_tol)[0]
           if len(hits) > 0:
             alias[hits[0]].append(int(src_rows[k]))
             continue
-
-        # Check against previously recovered samples
-        if rec_arr is not None:
-          dists = cdist(cols[k:k+1], rec_arr, metric='euclidean')[0]  # (R,)
-          if dists.min() < self.dedup_tol:
+        if rec_dists is not None:
+          if rec_dists[k].min() < self.dedup_tol:
             productive.add(int(src_rows[k]))
             continue
-
-        # New unique candidate
         alias[len(keep)] = [int(src_rows[k])]
         keep.append(k)
 
@@ -568,14 +589,6 @@ class IterativeSubtractionAttack:
 
 # ------------------------------------------------------------------ scoring
 # Ground truth used only for scoring
-def pairwise_dists(A, B_):
-  if len(A) == 0 or len(B_) == 0:
-    return np.zeros((len(A), len(B_)))
-  a2 = np.einsum('ij,ij->i', A, A)[:, None]
-  b2 = np.einsum('ij,ij->i', B_, B_)[None, :]
-  d2 = a2 - 2.0 * (A @ B_.T) + b2
-  np.maximum(d2, 0.0, out=d2)
-  return np.sqrt(d2, out=d2)
   
 from collections import defaultdict
 def score_attack(result, prob, l2_dist=L2_DIST):
@@ -620,15 +633,6 @@ def score_attack(result, prob, l2_dist=L2_DIST):
             'B0': len(used),
             'genuine_eps': eps,
             'matched': matched}
-def attack_baseline(prob):
-  """used in When The Curious Abondon Honesty paper, uses ground truth to find singletons"""
-  x = prob['x']
-  cols, _ = ratio_columns(prob['gw'], prob['gb'])
-  d = pairwise_dists(cols, x)
-  hit = d < L2_DIST
-  return {'G1': int(hit.any(axis=1).sum()) if len(cols) else 0,
-          'B0': int(hit.any(axis=0).sum()),
-          'recall': int(hit.any(axis=0).sum()) / prob['B']}
 
 
 def activation_stats(prob):
