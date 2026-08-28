@@ -9,7 +9,7 @@ import os
 import glob
 import pandas as pd
 
-def take_averate(filename,dataset,input_dir,output_dir = 'averages'):
+def take_average(filename,dataset,input_dir,output_dir = 'averages'):
     pattern = os.path.join(input_dir, f"{dataset}_seed*.csv")
     files = sorted(glob.glob(pattern))
 
@@ -47,7 +47,7 @@ def main():
 
         for r_dir in os.listdir(input_dir):
             in_dir = os.path.join(input_dir,r_dir)
-            take_averate(r_dir,db,in_dir,outdir)
+            take_average(r_dir,db,in_dir,outdir)
 
 if __name__ == '__main__':
     main()
