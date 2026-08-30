@@ -19,15 +19,17 @@ import os
 MODES = ('soliton_free', 'soliton_data', 'trap_weights')
 CHECK_PASSIVE = True
 MIRRORED = (False, True)
-BATCHES = (64, 128, 256, 300, 350, 400, 512, 600, 700, 800, 900, 1024)
+BATCHES = (64, 128, 256, 300, 400, 512, 600, 700, 800, 900, 1024)
 NUM_NEURONS = 1000
 
 # tuple of experiments to run
-DATABASES_LIST = ("mnist", "emnist", "svhn", "harus" , "fashion_mnist", "cifar10", "cifar100", "imagenet")   # add/remove as needed
+DATABASES_LIST = ("mnist", "emnist", "svhn", "harus" , "fashion_mnist", "cifar10", "cifar100",
+ #"imagenet",
+ )
 SEEDS = (55726, 42523, 93687, 32443, 56581)
 
-S = 0.95
-SOLITON = (0.07, 0.4)
+S = 0.99
+SOLITON = (0.05, 0.4)
 
 # --------------------------------------------------------------------- helpers
 def make_filename(db, seed, soliton, s):
@@ -93,7 +95,7 @@ def run_all_batches(db, seed, xt, yt):
   """Run every mode/mirrored combination across all batch sizes for one db/seed."""
   rows = {}
   # Pre-load calibration data once if needed
-  x_calib, _ = load_data(db, B=max(BATCHES), train=False) \
+  x_calib, _ = load_data(db, B=max(BATCHES), train=False,seed=seed) \
     if 'soliton_data' in MODES else (None, None)
 
   for mode in MODES:
@@ -187,9 +189,9 @@ def main():
 
     # load training data once per database (max batch size needed)
     print(f"Loading {db} ...")
-    xt, yt = load_data(db, B=max(BATCHES), train=True)
 
     for seed in SEEDS:
+      xt, yt = load_data(db, B=max(BATCHES), train=True,seed=seed)
       print(f"\n--- seed = {seed} ---")
       results = run_all_batches(db, seed, xt, yt)
       write_csv(db, seed, results)
