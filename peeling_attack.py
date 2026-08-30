@@ -197,12 +197,7 @@ def robust_soliton_degrees(rng, n_neurons, B, c=0.05, delta=0.1):
 
 
 def calibrate_biases(W1, calib_x, degrees):
-  """for when the server has access to some data. calculate b_j such that neuron j fires 
-  on exactly degrees[j] samples of calib_x.
-  Neuron j fires iff z_j + b_j > 0.  Sorting row j's pre-activations and
-  placing the threshold midway between the d_j-th and (d_j+1)-th largest
-  makes its activation set the d_j closest samples.
-  """
+  """ Soliton-Data (SD)"""
 
   calib_x = np.asarray(calib_x, dtype=np.float64)
   input_dim = calib_x.shape[1]
@@ -219,12 +214,8 @@ def calibrate_biases(W1, calib_x, degrees):
     b[j] = -0.5 * (hi + lo)
   return b
 
-
-# ------------------------------------------------------------------ model
-
 def analytic_biases(W1, degrees, B):
-  """Data-free counterpart of calibrate_biases. in Trap-Biases section of the report.
-  """
+  """ Soliton-Free (SF) """
   from statistics import NormalDist
   W = np.asarray(W1, dtype=np.float64)
   mu = 0.5 * W.sum(axis=0)
@@ -237,6 +228,8 @@ def analytic_biases(W1, degrees, B):
       for d in degrees
   ])
   return -(mu + sd * q)
+  
+#------------ model ------------------------------------------------------
 
 def build_model(input_dim, num_classes, n_neurons=1000,
                 mode='trap_weights',mirrored = False, s=1.0, sigma=SIGMA, seed=SEED,
