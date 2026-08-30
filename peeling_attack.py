@@ -41,96 +41,113 @@ TF_DETERMINISTIC_OPS=1
 
 def _device():
   return tf.device(ATTACK_DEVICE) if ATTACK_DEVICE else contextlib.nullcontext()
-
-def load_data(dataset, B, train = True):
-  """Load data for the specified dataset."""
-  split = 'train' if train else 'test'
-  if dataset in ("cifar10", "cifar100", "fashion_mnist", "mnist"):
-    x,y = _load_keras_subset(dataset, train, B)
-  elif dataset == "emnist":
-    x, y = _load_tfds_subset('emnist/byclass', split, B)
-    # tfds returns (28,28,1); squeeze to match Keras MNIST shape (28,28)
-    if x.ndim == 4 and x.shape[-1] == 1:
-      x = x.squeeze(-1)
-  elif dataset == "svhn":
+def load_data(dataset, B, train=True, seed=0):
+    """Load data for the specified dataset."""
     split = 'train' if train else 'test'
-    x, y = _load_tfds_subset('svhn_cropped', split, B)
-  elif dataset == 'harus':
-    x,y = _load_harus_subset(split,B)
-  elif dataset == "imagenet":
-    x, y = _load_imagenet_subset(split, B)
-  else:
-      raise ValueError(f"Unsupported dataset: {dataset}")
+    if dataset in ("cifar10", "cifar100", "fashion_mnist", "mnist"):
+        x, y = _load_keras_subset(dataset, train, B, seed)
+    elif dataset == "emnist":
+        x, y = _load_tfds_subset('emnist/byclass', split, B, seed)
+        # tfds returns (28,28,1); squeeze to match Keras MNIST shape (28,28)
+        if x.ndim == 4 and x.shape[-1] == 1:
+            x = x.squeeze(-1)
+    elif dataset == "svhn":
+        x, y = _load_tfds_subset('svhn_cropped', split, B, seed)
+    elif dataset == 'harus':
+        x, y = _load_harus_subset(split, B, seed)
+    elif dataset == "imagenet":
+        x, y = _load_imagenet_subset(split, B, seed)
+    else:
+        raise ValueError(f"Unsupported dataset: {dataset}")
 
-  return x,y
+    return x, y
 
-def _load_keras_subset(dataset_name, train , B):
-  """Load from tf.keras.datasets"""
-  if dataset_name == "cifar10":
-    (x, y), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
-  elif dataset_name == "cifar100":
-    (x, y), (x_test, y_test) = tf.keras.datasets.cifar100.load_data()
-  elif dataset_name == "fashion_mnist":
-    (x, y), (x_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
-  elif dataset_name == "mnist":
-    (x, y), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
-  else:
-    raise ValueError(f"Unknown keras dataset: {dataset_name}")
-  x, y = x[:B], y[:B]
-  x_test, y_test = x_test[:B], y_test[:B]
-  if train:
-    return x.astype(np.float64) / 255.0, y.flatten().astype(int)
-  else:
-    return x_test.astype(np.float64) / 255.0, y_test.flatten().astype(int)
 
-def _load_tfds_subset(dataset_name, split, B):
-  """split: train or test."""
-  split = f"{split}[:{B}]"
-  ds = tfds.load(dataset_name, split=split, as_supervised=True)
-  x, y = [], []
-  for img, label in tfds.as_numpy(ds):
-      x.append(img)
-      y.append(label)
-  
-  x = np.array(x, dtype=np.float64) / 255.0
-  y = np.array(y).flatten().astype(int)
-  return x, y
+def _load_keras_subset(dataset_name, train, B, seed):
+    """Load from tf.keras.datasets"""
+    if dataset_name == "cifar10":
+        (x, y), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+    elif dataset_name == "cifar100":
+        (x, y), (x_test, y_test) = tf.keras.datasets.cifar100.load_data()
+    elif dataset_name == "fashion_mnist":
+        (x, y), (x_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
+    elif dataset_name == "mnist":
+        (x, y), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
+    else:
+        raise ValueError(f"Unknown keras dataset: {dataset_name}")
 
-def _load_harus_subset(split,B):
-  scaler = MinMaxScaler()
-  x_train = np.loadtxt("UCI HAR Dataset/train/X_train.txt",dtype=np.float64)
-  y_train = np.loadtxt("UCI HAR Dataset/train/y_train.txt").astype(int) - 1
-  x_train = scaler.fit_transform(x_train)
-  if(split == 'train'):
-    return x_train[:B],y_train[:B]
-  else:
-    x_test  = np.loadtxt("UCI HAR Dataset/test/X_test.txt",dtype=np.float64)
-    y_test  = np.loadtxt("UCI HAR Dataset/test/y_test.txt").astype(int) - 1
-    x_test = scaler.transform(x_test)
-    return x_test[:B],y_test[:B]
-def _load_imagenet_subset(split,B):
-  label_csv = ""
-  images_path = "./imagenet"
-  if split == 'train':
-    labels_csv = "./imagenet_train_labels.csv"
-  else:
-    labels_csv ="./imagenet_test_labels.csv"
+    data_x, data_y = (x, y) if train else (x_test, y_test)
 
-  df = pd.read_csv(labels_csv)
-  df = df.iloc[:B]
-  
-  images, labels = [], []
-  for _, row in df.iterrows():
-    img_path = os.path.join(images_path, f"{row['image_id']}.JPEG")
-    img = Image.open(img_path).convert("RGB").resize((224, 224))
-    img = np.array(img, dtype=np.float64) / 255.0
-    images.append(img)
-    labels.append(int(row["label"]))
-  
-  x = np.stack(images)       # (N, 224, 224, 3)
-  y = np.array(labels, int)  # (N,)
-  
-  return x, y
+    rng = np.random.default_rng(seed)
+    n = min(B, len(data_x))
+    indices = rng.choice(len(data_x), size=n, replace=False)
+
+    return data_x[indices].astype(np.float64) / 255.0, data_y[indices].flatten().astype(int)
+
+
+def _load_tfds_subset(dataset_name, split, B, seed):
+    """split: train or test."""
+    ds = tfds.load(dataset_name, split=split, as_supervised=True)
+    x, y = [], []
+    for img, label in tfds.as_numpy(ds):
+        x.append(img)
+        y.append(label)
+
+    x = np.array(x, dtype=np.float64) / 255.0
+    y = np.array(y).flatten().astype(int)
+
+    rng = np.random.default_rng(seed)
+    n = min(B, len(x))
+    indices = rng.choice(len(x), size=n, replace=False)
+    return x[indices], y[indices]
+
+
+def _load_harus_subset(split, B, seed):
+    scaler = MinMaxScaler()
+    x_train = np.loadtxt("UCI HAR Dataset/train/X_train.txt", dtype=np.float64)
+    y_train = np.loadtxt("UCI HAR Dataset/train/y_train.txt").astype(int) - 1
+    x_train = scaler.fit_transform(x_train)
+
+    if split == 'train':
+        data_x, data_y = x_train, y_train
+    else:
+        x_test = np.loadtxt("UCI HAR Dataset/test/X_test.txt", dtype=np.float64)
+        y_test = np.loadtxt("UCI HAR Dataset/test/y_test.txt").astype(int) - 1
+        x_test = scaler.transform(x_test)
+        data_x, data_y = x_test, y_test
+
+    rng = np.random.default_rng(seed)
+    n = min(B, len(data_x))
+    indices = rng.choice(len(data_x), size=n, replace=False)
+    return data_x[indices], data_y[indices]
+
+
+def _load_imagenet_subset(split, B, seed):
+    images_path = "./imagenet"
+    if split == 'train':
+        labels_csv = "./imagenet_train_labels.csv"
+    else:
+        labels_csv = "./imagenet_test_labels.csv"
+
+    df = pd.read_csv(labels_csv)
+
+    rng = np.random.default_rng(seed)
+    n = min(B, len(df))
+    indices = rng.choice(len(df), size=n, replace=False)
+    df = df.iloc[indices]
+
+    images, labels = [], []
+    for _, row in df.iterrows():
+        img_path = os.path.join(images_path, f"{row['image_id']}.JPEG")
+        img = Image.open(img_path).convert("RGB").resize((224, 224))
+        img = np.array(img, dtype=np.float64) / 255.0
+        images.append(img)
+        labels.append(int(row["label"]))
+
+    x = np.stack(images)       # (N, 224, 224, 3)
+    y = np.array(labels, int)  # (N,)
+
+    return x, y
 # --------------------- weight construction --------------------------------------
 
 def trap_column(n, rng, s, sigma=SIGMA):
