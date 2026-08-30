@@ -123,7 +123,7 @@ def _load_harus_subset(split, B, seed):
 
 
 def _load_imagenet_subset(split, B, seed):
-    images_path = "./imagenet"
+    images_path = "./val_only"
     if split == 'train':
         labels_csv = "./imagenet_train_labels.csv"
     else:
