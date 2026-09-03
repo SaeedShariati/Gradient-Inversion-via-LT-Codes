@@ -65,9 +65,13 @@ def run_mode(mode, mirrored, xt, yt, B, seed,db,x_calib=None):
       mirrored=mirrored, mode=mode, soliton=SOLITON,
       calib_x=x_calib, seed=seed
     )
-
+  cert_tol = 1e-8
+  dedup_tol = 1e-6
+  if(db == "imagenet"):
+    cert_tol = 1e-9
+    dedup_tol = 1e-5
   prob = build_problem(model, xt, yt, B)
-  peel = IterativeSubtractionAttack(model, B).run(prob['gw'], prob['gb'])
+  peel = IterativeSubtractionAttack(model, B,dedup_tol=dedup_tol,cert_tol=cert_tol).run(prob['gw'], prob['gb'])
   sc = score_attack(peel, prob)
   A = activation_stats(prob)[0]
 
