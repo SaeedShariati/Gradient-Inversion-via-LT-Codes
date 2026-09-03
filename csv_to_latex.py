@@ -74,7 +74,7 @@ def parse_setting(filename):
 
 def setting_caption_desc(setting):
     """
-    Convert a setting name like 'S95', 'C5_S99', 'C7_S99', 'S95_2000'
+    Convert a setting name like 'S95', 'C5_S99', 'C7_S99', 'S95_N2000'
     into a LaTeX-safe caption fragment describing (c, delta), S and N.
     """
     c = DEFAULT_C
@@ -87,8 +87,8 @@ def setting_caption_desc(setting):
             c = int(token[1:]) / 100.0
         elif token.startswith('S') and token[1:].isdigit():
             S = int(token[1:]) / 100.0
-        elif token.isdigit():
-            N = int(token)
+        elif token.startswith('N') and token[1:].isdigit():
+            N = int(token[1:])
 
     parts = [f"(c, $\\delta$) = ({c:.2f}, {delta:.1f})"]
     if S is not None:
