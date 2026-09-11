@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Trap-weight gradient inversion with iterative sample subtraction
+peeling attack gradient inversion
 """
 import os
 os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '3')
