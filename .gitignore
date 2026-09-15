@@ -8,3 +8,5 @@
 !*.py
 !.gitignore
 !LICENSE
+!imagenet_test_labels.csv
+!imagenet_train_labels.csv
