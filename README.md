@@ -1,3 +1,3 @@
 peeling_attack.py has the common functionality needed for expermients. compare_modes.py, compares all combinations of specified configurations, and generates CSVs for their tables. average_seeds.py averages tables for different seeds. csv_to_latex.py converts a CSV to a latex table.
 
-./val_only is the validation set of the ImageNet dataset, which has been divided into train and test by imagenet_test_labels.csv and imagenet_test_labels.csv.
+./val_only is the where the validation set of the ImageNet dataset needs to be placed, which is then divided into train and test by imagenet_test_labels.csv and imagenet_test_labels.csv. (The reason the validation set was used is due to smaller size)
